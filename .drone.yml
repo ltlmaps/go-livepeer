@@ -1,9 +1,9 @@
 kind: pipeline
 type: docker
-name: linux-arm64
+name: linux
 
 platform:
-  arch: arm64
+  arch: amd64
   os: linux
 
 steps:
