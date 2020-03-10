@@ -10,4 +10,6 @@ steps:
 - name: build
   image: golang:1.13
   commands:
-  - echo 'hi' && ./print_version.sh
+  - echo 'hi'
+  - pwd
+  - go build -v ./cmd/livepeer/livepeer.go
