@@ -16,7 +16,7 @@ steps:
   commands:
   - echo 'hi'
   - pwd
-  - go build ./cmd/livepeer/livepeer.go
+  # - go build ./cmd/livepeer/livepeer.go
 - name: broadcaster
   group: test
   image: livepeer/go-livepeer:master
