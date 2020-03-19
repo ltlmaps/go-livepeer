@@ -21,29 +21,11 @@ steps:
   group: test
   image: livepeer/go-livepeer:master
   commands:
-  - /usr/bin/livepeer
-  - -broadcaster
-  - -maxSessions=200
-  - -authWebhookUrl=http://api.livepeer-ac.live/api/stream/hook
-  - -orchWebhookUrl=http://api.livepeer-ac.live/api/orchestrator
-  - -rtmpAddr=0.0.0.0:1935
-  - -cliAddr=0.0.0.0:7935
-  - -httpAddr=0.0.0.0:8935
-  - -monitor=true
-  - -transcodingOptions=P240p30fps16x9,P360p30fps16x9,P576p30fps16x9,P720p30fps16x9
-  - -v=9
+  - /usr/bin/livepeer -broadcaster -maxSessions=200 -authWebhookUrl=http://api.livepeer-ac.live/api/stream/hook -orchWebhookUrl=http://api.livepeer-ac.live/api/orchestrator -rtmpAddr=0.0.0.0:1935 -cliAddr=0.0.0.0:7935 -httpAddr=0.0.0.0:8935 -monitor=true -transcodingOptions=P240p30fps16x9,P360p30fps16x9,P576p30fps16x9,P720p30fps16x9 -v=9
 - name: orchestrator
   group: test
   image: livepeer/go-livepeer:master
   environment:
     nvidia : 0,1,2,3,4,5,6,7
-  commands:
-  - /usr/bin/livepeer
-  - -v=9
-  - -orchestrator
-  - -transcoder
-  - -monitor=true
-  - -cliAddr=0.0.0.0:7935
-  - -httpAddr=0.0.0.0:8935
-  - -serviceAddr=0.0.0.0:8935
-  - -maxSessions=80
+  commands: 
+  - /usr/bin/livepeer -v=9 -orchestrator -transcoder -monitor=true -cliAddr=0.0.0.0:7935 -httpAddr=0.0.0.0:8935 -serviceAddr=0.0.0.0:8935 -maxSessions=80
