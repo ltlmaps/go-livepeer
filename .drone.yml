@@ -18,7 +18,7 @@ services:
   detach: true
   image: livepeer/go-livepeer:master
   environment:
-    NVIDIA_DRIVER_CAPABILITIES: ALL
+    NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
     NVIDIA : 0,1,2,3,4,5,6,7
     DRONE_RESOURCE_LIMIT_GPU: "8"
   commands: 
