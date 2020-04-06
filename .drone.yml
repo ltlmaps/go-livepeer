@@ -103,3 +103,13 @@ steps:
   - stream-tester
   commands:
   - cat /drone/src/stream_tester_result.json
+- name: discord notification
+    image: appleboy/drone-discord
+    settings:
+      secrets: [ discord_webhook_id, discord_webhook_token ]
+      message: >
+        {{#success build.status}}
+          build {{build.number}} : ${DRONE_COMMIT_SHA:0:8} succeeded. {{build.link}}
+        {{else}}
+          build {{build.number}} failed. {{build.link}}
+        {{/success}}
