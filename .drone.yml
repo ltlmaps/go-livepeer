@@ -36,8 +36,6 @@ steps:
       nvidia.com/gpu: 8
 - name: build
   image: golang:1.13
-  depends_on:
-  - wait-for-images
   environment:
       PKG_CONFIG_PATH: /root/compiled/lib/pkgconfig
       GOPATH: /go
