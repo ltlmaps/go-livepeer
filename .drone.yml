@@ -103,7 +103,7 @@ steps:
   - stream-tester
   commands:
   - cat /drone/src/stream_tester_result.json
-- name: discord notification
+- name: discord-notification
     image: appleboy/drone-discord
     settings:
       webhook_id:
