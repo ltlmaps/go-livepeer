@@ -17,6 +17,10 @@ steps:
   image: livepeer/go-livepeer:${DRONE_COMMIT_SHA:0:8}
   settings:
     digest: ${DRONE_COMMIT_SHA:0:8}
+  when:
+    branch:
+      exclude:
+      - master
   depends_on:
   - wait-for-images
   commands:
@@ -27,6 +31,39 @@ steps:
   image: livepeer/go-livepeer:${DRONE_COMMIT_SHA:0:8}
   settings:
     digest: ${DRONE_COMMIT_SHA:0:8}
+  when:
+    branch:
+      exclude:
+      - master
+  depends_on:
+  - wait-for-images
+  environment:
+    NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    NVIDIA : 0,1,2,3,4,5,6,7
+    DRONE_RESOURCE_LIMIT_GPU: "8"
+  commands: 
+  - /usr/bin/livepeer -v=9 -orchestrator -network offchain -transcoder -monitor=true -cliAddr=localhost:7936 -httpAddr=localhost:8936 -serviceAddr=localhost:8936 -maxSessions=80 -nvidia=0,1,2,3,4,5,6
+  resources:
+    limits:
+      nvidia.com/gpu: 8
+- name: broadcaster-master
+  group: test
+  detach: true
+  image: livepeer/go-livepeer:master
+  when:
+    branch:
+      - master
+  depends_on:
+  - wait-for-images
+  commands:
+  - /usr/bin/livepeer -broadcaster -network offchain -maxSessions=200 -rtmpAddr=localhost:1935 -cliAddr=localhost:7935 -httpAddr=localhost:8935 -orchAddr=localhost:8936 -monitor=true -transcodingOptions=P240p30fps16x9,P360p30fps16x9,P576p30fps16x9,P720p30fps16x9 -v=9
+- name: orchestrator-master
+  group: test
+  detach: true
+  image: livepeer/go-livepeer:master
+  when:
+    branch:
+      - master
   depends_on:
   - wait-for-images
   environment:
