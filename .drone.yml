@@ -88,7 +88,7 @@ steps:
   - wget https://storage.googleapis.com/lp_testharness_assets/official_test_source_2s_keys_24pfs_3min.mp4
 - name: stream-tester
   group: test
-  image: ya7ya/streamtester:latest
+  image: ya7ya/stream-tester:latest
   depends_on:
   - wait-for-images
   - orchestrator
