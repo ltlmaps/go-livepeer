@@ -14,7 +14,7 @@ steps:
 - name: broadcaster
   group: test
   detach: true
-  image: livepeer/go-livepeer:master
+  image: livepeer/go-livepeer@sha256:${DRONE_COMMIT_SHA:0:8}
   depends_on:
   - wait-for-images
   commands:
@@ -22,7 +22,7 @@ steps:
 - name: orchestrator
   group: test
   detach: true
-  image: livepeer/go-livepeer:master
+  image: livepeer/go-livepeer@sha256:${DRONE_COMMIT_SHA:0:8}
   depends_on:
   - wait-for-images
   environment:
