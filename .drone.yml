@@ -14,7 +14,7 @@ steps:
 - name: broadcaster
   group: test
   detach: true
-  image: livepeer/go-livepeer:$(cat /drone/src/lp_image)
+  image: livepeer/go-livepeer:sha256:${DRONE_COMMIT_SHA}
   depends_on:
   - wait-for-images
   commands:
@@ -22,7 +22,7 @@ steps:
 - name: orchestrator
   group: test
   detach: true
-  image: livepeer/go-livepeer:$(cat /drone/src/lp_image)
+  image: livepeer/go-livepeer:sha256:${DRONE_COMMIT_SHA}
   depends_on:
   - wait-for-images
   environment:
@@ -42,6 +42,7 @@ steps:
       DOCKER_CLI_EXPERIMENTAL: enabled
   commands:
   - pwd
+  - echo $DRONE_TARGET_BRANCH $DRONE_COMMIT_SHA
   - cd /drone/src
   - wget https://storage.googleapis.com/lp_testharness_assets/official_test_source_2s_keys_24pfs_3min.mp4
 - name: stream-tester
