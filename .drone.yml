@@ -14,7 +14,7 @@ steps:
 - name: broadcaster
   group: test
   detach: true
-  image: livepeer/go-livepeer
+  image: livepeer/go-livepeer:${DRONE_COMMIT_SHA:0:8}
   settings:
     digest: ${DRONE_COMMIT_SHA:0:8}
   depends_on:
@@ -24,7 +24,7 @@ steps:
 - name: orchestrator
   group: test
   detach: true
-  image: livepeer/go-livepeer
+  image: livepeer/go-livepeer:${DRONE_COMMIT_SHA:0:8}
   settings:
     digest: ${DRONE_COMMIT_SHA:0:8}
   depends_on:
