@@ -55,4 +55,4 @@ steps:
   environment:
     GODEBUG: http2client=0
   commands:
-    - /root/streamtester -no-bar -latency  -host 'localhost' -rtmp 1935 -media 8935 -profiles '4' -v '15' -file=/drone/src/official_test_source_2s_keys_24pfs_3min.mp4
+    - /root/streamtester -no-bar -latency  -host 'localhost' -rtmp 1935 -media 8935 -profiles '4' -v '1' -file=/drone/src/official_test_source_2s_keys_24pfs_3min.mp4
