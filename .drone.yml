@@ -9,9 +9,11 @@ platform:
 steps:
 - name: wait-for-images
   image: ya7ya/wait-for-docker:latest
+  entrypoint:
+    - null
   commands:
-  - export LP_IMAGE=$(echo $DRONE_TARGET_BRANCH | sed 's/\//-/g' | tr -cd '[:alnum:]_-')
-  - /wait-for-it.sh -h livepeer/go-livepeer -p $(LP_IMAGE) -t 5 -r 10
+  - echo $(echo $DRONE_TARGET_BRANCH | sed 's/\//-/g' | tr -cd '[:alnum:]_-') > /drone/src/lp_image
+  - /wait-for-it.sh -h livepeer/go-livepeer -p $(echo /drone/src/lp_image) -t 5 -r 10
 - name: broadcaster
   group: test
   detach: true
