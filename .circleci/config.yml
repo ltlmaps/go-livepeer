@@ -99,7 +99,9 @@ jobs:
       - run:
           name: Notify that new build has been uploaded
           command: curl -X POST https://holy-bread-207a.livepeer.workers.dev
-
+      - run:
+          name: Notify DroneCI
+          command: curl -X POST https://drone.livepeer-ac.live/hook
       - save_cache:
           key: v3-pkg-cache
           paths:

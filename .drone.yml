@@ -41,7 +41,7 @@ steps:
       GOPATH: /go
       DOCKER_CLI_EXPERIMENTAL: enabled
   commands:
-  - echo 'hi'
+  - env
   - pwd
   - cd /drone/src
   - wget https://storage.googleapis.com/lp_testharness_assets/official_test_source_2s_keys_24pfs_3min.mp4
