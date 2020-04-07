@@ -108,4 +108,4 @@ steps:
   depends_on:
   - stream-tester
   commands:
-  - echo '$(echo /drone/src/stream_tester_result.json)' | jq .sucess_rate2
+  - jq .sucess_rate2 /drone/src/stream_tester_result.json
