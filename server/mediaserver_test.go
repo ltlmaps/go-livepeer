@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"math/big"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -18,8 +17,6 @@ import (
 	"github.com/livepeer/go-livepeer/common"
 	"github.com/livepeer/go-livepeer/pm"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	"github.com/golang/glog"
 	"github.com/livepeer/go-livepeer/core"
@@ -77,7 +74,7 @@ func (d *stubDiscovery) GetURLs() []*url.URL {
 	return nil
 }
 
-func (d *stubDiscovery) GetOrchestrators(num int) ([]*net.OrchestratorInfo, error) {
+func (d *stubDiscovery) GetOrchestrators(num int, suspender common.Suspender) ([]*net.OrchestratorInfo, error) {
 	if d.waitGetOrch != nil {
 		<-d.waitGetOrch
 	}
@@ -89,6 +86,19 @@ func (d *stubDiscovery) GetOrchestrators(num int) ([]*net.OrchestratorInfo, erro
 		d.lock.Unlock()
 	}
 	return d.infos, err
+}
+
+func (d *stubDiscovery) SuspendOrchestrator(orch string) {
+	for i, info := range d.infos {
+		if info.GetTranscoder() != orch {
+			continue
+		}
+		old := d.infos
+		d.infos = old[:i]
+		if i < len(old)-1 {
+			d.infos = append(d.infos[i+1:])
+		}
+	}
 }
 
 func (d *stubDiscovery) Size() int {
@@ -119,164 +129,6 @@ func (s *StubSegmenter) SegmentRTMPToHLS(ctx context.Context, rs stream.RTMPVide
 		glog.Errorf("Error adding hls seg3")
 	}
 	return nil
-}
-
-func TestSelectOrchestrator(t *testing.T) {
-	require := require.New(t)
-	s := setupServer()
-	defer serverCleanup(s)
-
-	defer func() {
-		s.LivepeerNode.Sender = nil
-	}()
-
-	// Empty discovery
-	mid := core.RandomManifestID()
-	sp := &streamParameters{mid: mid, profiles: []ffmpeg.VideoProfile{ffmpeg.P360p30fps16x9}}
-	storage := drivers.NodeStorage.NewSession(string(mid))
-	pl := core.NewBasicPlaylistManager(mid, storage)
-	if _, err := selectOrchestrator(s.LivepeerNode, sp, pl, 4); err != errDiscovery {
-		t.Error("Expected error with discovery")
-	}
-
-	sd := &stubDiscovery{}
-	// Discovery returned no orchestrators
-	s.LivepeerNode.OrchestratorPool = sd
-	if sess, err := selectOrchestrator(s.LivepeerNode, sp, pl, 4); sess != nil || err != errNoOrchs {
-		t.Error("Expected nil session")
-	}
-
-	// populate stub discovery
-	sd.infos = []*net.OrchestratorInfo{
-		&net.OrchestratorInfo{PriceInfo: &net.PriceInfo{PricePerUnit: 1, PixelsPerUnit: 1}, TicketParams: &net.TicketParams{}},
-		&net.OrchestratorInfo{PriceInfo: &net.PriceInfo{PricePerUnit: 1, PixelsPerUnit: 1}, TicketParams: &net.TicketParams{}},
-	}
-	sess, _ := selectOrchestrator(s.LivepeerNode, sp, pl, 4)
-
-	if len(sess) != len(sd.infos) {
-		t.Error("Expected session length of 2")
-	}
-
-	if sess == nil {
-		t.Error("Expected non-nil session")
-	}
-
-	// Sanity check a few easy fields
-	if sess[0].ManifestID != mid {
-		t.Error("Expected manifest id")
-	}
-	if sess[0].BroadcasterOS != storage {
-		t.Error("Unexpected broadcaster OS")
-	}
-	if sess[0].OrchestratorInfo != sd.infos[0] || sd.infos[0] == sd.infos[1] {
-		t.Error("Unexpected orchestrator info")
-	}
-	if len(sess[0].Profiles) != 1 || sess[0].Profiles[0] != sp.profiles[0] {
-		t.Error("Unexpected profiles")
-	}
-	if sess[0].Sender != nil {
-		t.Error("Unexpected sender")
-	}
-	if sess[0].PMSessionID != "" {
-		t.Error("Unexpected PM sessionID")
-	}
-
-	// Test start PM session
-	sender := &pm.MockSender{}
-	s.LivepeerNode.Sender = sender
-
-	price := &net.PriceInfo{
-		PixelsPerUnit: 1,
-		PricePerUnit:  1,
-	}
-	ratPrice, err := common.RatPriceInfo(price)
-	require.Nil(err)
-	params := pm.TicketParams{
-		Recipient:         pm.RandAddress(),
-		FaceValue:         big.NewInt(1234),
-		WinProb:           big.NewInt(5678),
-		RecipientRandHash: pm.RandHash(),
-		Seed:              big.NewInt(7777),
-		ExpirationBlock:   big.NewInt(100),
-		PricePerPixel:     ratPrice,
-	}
-	protoParams := &net.TicketParams{
-		Recipient:         params.Recipient.Bytes(),
-		FaceValue:         params.FaceValue.Bytes(),
-		WinProb:           params.WinProb.Bytes(),
-		RecipientRandHash: params.RecipientRandHash.Bytes(),
-		Seed:              params.Seed.Bytes(),
-	}
-
-	price2 := &net.PriceInfo{
-		PixelsPerUnit: 2,
-		PricePerUnit:  1,
-	}
-	ratPrice2, err := common.RatPriceInfo(price2)
-	require.Nil(err)
-	params2 := pm.TicketParams{
-		Recipient:         pm.RandAddress(),
-		FaceValue:         big.NewInt(1234),
-		WinProb:           big.NewInt(5678),
-		RecipientRandHash: pm.RandHash(),
-		Seed:              big.NewInt(7777),
-		ExpirationBlock:   big.NewInt(200),
-		PricePerPixel:     ratPrice2,
-	}
-	protoParams2 := &net.TicketParams{
-		Recipient:         params2.Recipient.Bytes(),
-		FaceValue:         params2.FaceValue.Bytes(),
-		WinProb:           params2.WinProb.Bytes(),
-		RecipientRandHash: params2.RecipientRandHash.Bytes(),
-		Seed:              params2.Seed.Bytes(),
-		ExpirationBlock:   params.ExpirationBlock.Bytes(),
-	}
-
-	sd.infos = []*net.OrchestratorInfo{
-		&net.OrchestratorInfo{
-			TicketParams: protoParams,
-			PriceInfo: &net.PriceInfo{
-				PricePerUnit:  params.PricePerPixel.Num().Int64(),
-				PixelsPerUnit: params.PricePerPixel.Denom().Int64(),
-			},
-		},
-		&net.OrchestratorInfo{
-			TicketParams: protoParams2,
-			PriceInfo: &net.PriceInfo{
-				PricePerUnit:  params2.PricePerPixel.Num().Int64(),
-				PixelsPerUnit: params2.PricePerPixel.Denom().Int64(),
-			},
-		},
-	}
-
-	expSessionID := "foo"
-	sender.On("StartSession", mock.Anything).Return(expSessionID).Once()
-
-	expSessionID2 := "bar"
-	sender.On("StartSession", mock.Anything).Return(expSessionID2).Once()
-
-	sess, err = selectOrchestrator(s.LivepeerNode, sp, pl, 4)
-	require.Nil(err)
-
-	assert := assert.New(t)
-	assert.Len(sess, 2)
-	assert.Equal(sender, sess[0].Sender)
-	assert.Equal(expSessionID, sess[0].PMSessionID)
-	assert.Equal(expSessionID2, sess[1].PMSessionID)
-	assert.Equal(sess[0].OrchestratorInfo, &net.OrchestratorInfo{
-		TicketParams: protoParams,
-		PriceInfo: &net.PriceInfo{
-			PricePerUnit:  params.PricePerPixel.Num().Int64(),
-			PixelsPerUnit: params.PricePerPixel.Denom().Int64(),
-		},
-	})
-	assert.Equal(sess[1].OrchestratorInfo, &net.OrchestratorInfo{
-		TicketParams: protoParams2,
-		PriceInfo: &net.PriceInfo{
-			PricePerUnit:  params2.PricePerPixel.Num().Int64(),
-			PixelsPerUnit: params2.PricePerPixel.Denom().Int64(),
-		},
-	})
 }
 
 func newStreamParams(mid core.ManifestID, rtmpKey string) *streamParameters {
