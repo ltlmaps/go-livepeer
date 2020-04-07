@@ -54,15 +54,18 @@ type BroadcastSessionsManager struct {
 	// Accessing or changing any of the below requires ownership of this mutex
 	sessLock *sync.Mutex
 
-	mid      core.ManifestID
-	sel      BroadcastSessionsSelector
+	node   *core.LivepeerNode
+	params *streamParameters
+	pl     core.PlaylistManager
+	sel    BroadcastSessionsSelector
+	sus    *suspender
+
 	sessMap  map[string]*BroadcastSession
 	numOrchs int // how many orchs to request at once
+	poolSize int // active set size
 
 	refreshing bool // only allow one refresh in-flight
 	finished   bool // set at stream end
-
-	createSessions func() ([]*BroadcastSession, error)
 }
 
 func (bsm *BroadcastSessionsManager) selectSession() *BroadcastSession {
@@ -123,8 +126,8 @@ func (bsm *BroadcastSessionsManager) completeSession(sess *BroadcastSession) {
 func (bsm *BroadcastSessionsManager) refreshSessions() {
 
 	started := time.Now()
-	glog.V(common.DEBUG).Info("Starting session refresh manifestID=", bsm.mid)
-	defer glog.V(common.DEBUG).Infof("Ending session refresh manifestID=%s dur=%s", bsm.mid, time.Since(started))
+	glog.V(common.DEBUG).Info("Starting session refresh manifestID=", bsm.params.mid)
+	defer glog.V(common.DEBUG).Infof("Ending session refresh manifestID=%s dur=%s", bsm.params.mid, time.Since(started))
 	bsm.sessLock.Lock()
 	if bsm.finished || bsm.refreshing {
 		bsm.sessLock.Unlock()
@@ -185,24 +188,25 @@ func NewSessionManager(node *core.LivepeerNode, params *streamParameters, pl cor
 	maxInflight := common.HTTPTimeout.Seconds() / SegLen.Seconds()
 	numOrchs := int(math.Min(poolSize, maxInflight*2))
 	bsm := &BroadcastSessionsManager{
-		mid:            params.mid,
-		sel:            sel,
-		sessMap:        make(map[string]*BroadcastSession),
-		createSessions: func() ([]*BroadcastSession, error) { return selectOrchestrator(node, params, pl, numOrchs) },
-		sessLock:       &sync.Mutex{},
-		numOrchs:       numOrchs,
+		node:     node,
+		params:   params,
+		pl:       pl,
+		sel:      sel,
+		sessMap:  make(map[string]*BroadcastSession),
+		sessLock: &sync.Mutex{},
+		numOrchs: numOrchs,
+		poolSize: int(poolSize),
 	}
 	bsm.refreshSessions()
 	return bsm
 }
 
-func selectOrchestrator(n *core.LivepeerNode, params *streamParameters, cpl core.PlaylistManager, count int) ([]*BroadcastSession, error) {
-	if n.OrchestratorPool == nil {
+func (bsm *BroadcastSessionsManager) createSessions() ([]*BroadcastSession, error) {
+	if bsm.node.OrchestratorPool == nil {
 		glog.Info("No orchestrators specified; not transcoding")
 		return nil, errDiscovery
 	}
 
-	tinfos, err := n.OrchestratorPool.GetOrchestrators(count)
 	if len(tinfos) <= 0 {
 		glog.Info("No orchestrators found; not transcoding. Error: ", err)
 		return nil, errNoOrchs
@@ -220,13 +224,13 @@ func selectOrchestrator(n *core.LivepeerNode, params *streamParameters, cpl core
 			ticketParams *pm.TicketParams
 		)
 
-		if n.Sender != nil {
+		if bsm.node.Sender != nil {
 			ticketParams = pmTicketParams(tinfo.TicketParams)
-			sessionID = n.Sender.StartSession(*ticketParams)
+			sessionID = bsm.node.Sender.StartSession(*ticketParams)
 		}
 
-		if n.Balances != nil {
-			balance = core.NewBalance(ticketParams.Recipient, params.mid, n.Balances)
+		if bsm.node.Balances != nil {
+			balance = core.NewBalance(ticketParams.Recipient, bsm.params.mid, bsm.node.Balances)
 		}
 
 		var orchOS drivers.OSSession
@@ -234,21 +238,21 @@ func selectOrchestrator(n *core.LivepeerNode, params *streamParameters, cpl core
 			orchOS = drivers.NewSession(tinfo.Storage[0])
 		}
 
-		bcastOS := cpl.GetOSSession()
+		bcastOS := bsm.pl.GetOSSession()
 		if bcastOS.IsExternal() {
 			// Give each O its own OS session to prevent front running uploads
-			pfx := fmt.Sprintf("%v/%v", cpl.ManifestID(), core.RandomManifestID())
+			pfx := fmt.Sprintf("%v/%v", bsm.pl.ManifestID(), core.RandomManifestID())
 			bcastOS = drivers.NodeStorage.NewSession(pfx)
 		}
 
 		session := &BroadcastSession{
-			Broadcaster:      core.NewBroadcaster(n),
-			ManifestID:       params.mid,
-			Profiles:         params.profiles,
+			Broadcaster:      core.NewBroadcaster(bsm.node),
+			ManifestID:       bsm.params.mid,
+			Profiles:         bsm.params.profiles,
 			OrchestratorInfo: tinfo,
 			OrchestratorOS:   orchOS,
 			BroadcasterOS:    bcastOS,
-			Sender:           n.Sender,
+			Sender:           bsm.node.Sender,
 			PMSessionID:      sessionID,
 			Balance:          balance,
 		}

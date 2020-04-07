@@ -49,22 +49,44 @@ func StubBroadcastSessionsManager() *BroadcastSessionsManager {
 	return bsmWithSessList([]*BroadcastSession{sess1, sess2})
 }
 
+func updateBsmSessList(bsm *BroadcastSessionsManager, sessList []*BroadcastSession) {
+	for _, sess := range sessList {
+		bsm.sessMap[sess.OrchestratorInfo.Transcoder] = sess
+		bsm.node.OrchestratorPool.(*stubDiscovery).infos = append(bsm.node.OrchestratorPool.(*stubDiscovery).infos, sess.OrchestratorInfo)
+	}
+	sel := &LIFOSelector{}
+	sel.Add(sessList)
+	bsm.sel = sel
+}
+
 func bsmWithSessList(sessList []*BroadcastSession) *BroadcastSessionsManager {
 	sessMap := make(map[string]*BroadcastSession)
+	sd := &stubDiscovery{}
 	for _, sess := range sessList {
 		sessMap[sess.OrchestratorInfo.Transcoder] = sess
+		sd.infos = append(sd.infos, sess.OrchestratorInfo)
 	}
 
 	sel := &LIFOSelector{}
 	sel.Add(sessList)
 
+	mid := core.RandomManifestID()
+	params := &streamParameters{
+		mid: mid,
+	}
+
+	n, _ := core.NewLivepeerNode(nil, "", nil)
+	n.OrchestratorPool = sd
+
 	return &BroadcastSessionsManager{
+		node:   n,
+		params: params,
+		pl: &stubPlaylistManager{
+			os: &stubOSSession{},
+		},
 		sel:      sel,
 		sessMap:  sessMap,
 		sessLock: &sync.Mutex{},
-		createSessions: func() ([]*BroadcastSession, error) {
-			return sessList, nil
-		},
 	}
 }
 
@@ -202,13 +224,14 @@ func TestNewSessionManager(t *testing.T) {
 	storage := drivers.NewMemoryDriver(nil).NewSession(string(mid))
 	pl := core.NewBasicPlaylistManager(mid, storage)
 
+	// Check numOrchs up to maximum and a bit beyond
+	sd := &stubDiscovery{}
+	n.OrchestratorPool = sd
+
 	// Check empty pool produces expected numOrchs
 	sess := NewSessionManager(n, params, pl, &LIFOSelector{})
 	assert.Equal(0, sess.numOrchs)
 
-	// Check numOrchs up to maximum and a bit beyond
-	sd := &stubDiscovery{}
-	n.OrchestratorPool = sd
 	max := int(common.HTTPTimeout.Seconds()/SegLen.Seconds()) * 2
 	for i := 0; i < 10; i++ {
 		sess = NewSessionManager(n, params, pl, &LIFOSelector{})
@@ -260,13 +283,11 @@ func TestSelectSession(t *testing.T) {
 	assert.Len(bsm.sessList(), 0)
 	assert.Len(bsm.sessMap, 2) // map should still track original sessions
 
-	// assert session list gets refreshed if under threshold. check via waitgroup
+	// assert session list gets refreshed if under threshold
 	bsm.numOrchs = 1
-	var wg sync.WaitGroup
-	wg.Add(1)
-	bsm.createSessions = func() ([]*BroadcastSession, error) { wg.Done(); return nil, fmt.Errorf("err") }
-	bsm.selectSession()
-	assert.True(wgWait(&wg), "Session refresh timed out")
+	updateBsmSessList(bsm.BroadcastSessionsManager, []*BroadcastSession{StubBroadcastSession("transcoder3")})
+	sess = bsm.selectSession()
+	assert.Equal(bsm.sessMap["transcoder3"], sess)
 
 	// assert the selection retries if session in list doesn't exist in map
 	bsm = newSessionsManagerLIFO(StubBroadcastSessionsManager())
@@ -372,18 +393,146 @@ func TestCompleteSessions(t *testing.T) {
 	assert.Equal(copiedSess, bsm.sessMap[copiedSess.OrchestratorInfo.Transcoder])
 }
 
+func TestCreateSessions(t *testing.T) {
+	assert := assert.New(t)
+	mid := core.RandomManifestID()
+	params := &streamParameters{mid: mid, profiles: []ffmpeg.VideoProfile{ffmpeg.P360p30fps16x9}}
+	storage := drivers.NewMemoryDriver(nil).NewSession(string(mid))
+	pl := core.NewBasicPlaylistManager(mid, storage)
+	n, _ := core.NewLivepeerNode(nil, "", nil)
+	bsm := NewSessionManager(n, params, pl, &LIFOSelector{})
+
+	// Test node.OrchestratorPool == nil => ErrDiscovery
+	sess, err := bsm.createSessions()
+	assert.Nil(sess)
+	assert.EqualError(err, errDiscovery.Error())
+
+	// Test empty OrchestratorPool => ErrNoOrchs
+	sd := &stubDiscovery{}
+	n.OrchestratorPool = sd
+	sess, err = bsm.createSessions()
+	assert.Nil(sess)
+	assert.EqualError(err, errNoOrchs.Error())
+
+	// populate stub discovery
+	sd.infos = []*net.OrchestratorInfo{
+		&net.OrchestratorInfo{Transcoder: "foo", PriceInfo: &net.PriceInfo{PricePerUnit: 1, PixelsPerUnit: 1}, TicketParams: &net.TicketParams{}},
+		&net.OrchestratorInfo{Transcoder: "bar", PriceInfo: &net.PriceInfo{PricePerUnit: 1, PixelsPerUnit: 1}, TicketParams: &net.TicketParams{}},
+	}
+	sess, err = bsm.createSessions()
+	assert.Equal(len(sess), len(sd.infos))
+	assert.NotNil(sess)
+	// Sanity check a few easy fields
+	assert.Equal(sess[0].ManifestID, mid)
+	assert.Equal(sess[0].BroadcasterOS, storage)
+	assert.Equal(sess[0].OrchestratorInfo, sd.infos[0])
+	assert.Equal(sess[1].OrchestratorInfo, sd.infos[1])
+	assert.Len(sess[0].Profiles, 1)
+	assert.Nil(sess[0].Sender)
+	assert.Equal(sess[0].PMSessionID, "")
+
+	// Test start PM session
+	sender := &pm.MockSender{}
+	n.Sender = sender
+	price1 := &net.PriceInfo{
+		PricePerUnit:  1,
+		PixelsPerUnit: 1,
+	}
+	ratPrice1, err := common.RatPriceInfo(price1)
+	require.Nil(t, err)
+	params1 := pm.TicketParams{
+		Recipient:         pm.RandAddress(),
+		FaceValue:         big.NewInt(1234),
+		WinProb:           big.NewInt(5678),
+		RecipientRandHash: pm.RandHash(),
+		Seed:              big.NewInt(7777),
+		ExpirationBlock:   big.NewInt(100),
+		PricePerPixel:     ratPrice1,
+	}
+	protoParams1 := &net.TicketParams{
+		Recipient:         params1.Recipient.Bytes(),
+		FaceValue:         params1.FaceValue.Bytes(),
+		WinProb:           params1.WinProb.Bytes(),
+		RecipientRandHash: params1.RecipientRandHash.Bytes(),
+		Seed:              params1.Seed.Bytes(),
+	}
+
+	price2 := &net.PriceInfo{
+		PricePerUnit:  1,
+		PixelsPerUnit: 2,
+	}
+	ratPrice2, err := common.RatPriceInfo(price2)
+	require.Nil(t, err)
+	params2 := pm.TicketParams{
+		Recipient:         pm.RandAddress(),
+		FaceValue:         big.NewInt(1234),
+		WinProb:           big.NewInt(5678),
+		RecipientRandHash: pm.RandHash(),
+		Seed:              big.NewInt(7777),
+		ExpirationBlock:   big.NewInt(200),
+		PricePerPixel:     ratPrice2,
+	}
+	protoParams2 := &net.TicketParams{
+		Recipient:         params2.Recipient.Bytes(),
+		FaceValue:         params2.FaceValue.Bytes(),
+		WinProb:           params2.WinProb.Bytes(),
+		RecipientRandHash: params2.RecipientRandHash.Bytes(),
+		Seed:              params2.Seed.Bytes(),
+		ExpirationBlock:   params2.ExpirationBlock.Bytes(),
+	}
+
+	sd.infos = []*net.OrchestratorInfo{
+		{
+			TicketParams: protoParams1,
+			PriceInfo: &net.PriceInfo{
+				PricePerUnit:  params1.PricePerPixel.Num().Int64(),
+				PixelsPerUnit: params1.PricePerPixel.Denom().Int64(),
+			},
+		},
+		{
+			TicketParams: protoParams2,
+			PriceInfo: &net.PriceInfo{
+				PricePerUnit:  params2.PricePerPixel.Num().Int64(),
+				PixelsPerUnit: params2.PricePerPixel.Denom().Int64(),
+			},
+		},
+	}
+
+	expSessionID := "foo"
+	sender.On("StartSession", mock.Anything).Return(expSessionID).Once()
+
+	expSessionID2 := "bar"
+	sender.On("StartSession", mock.Anything).Return(expSessionID2).Once()
+
+	sess, err = bsm.createSessions()
+	require.Nil(t, err)
+
+	assert.Len(sess, 2)
+	assert.Equal(sender, sess[0].Sender)
+	assert.Equal(expSessionID, sess[0].PMSessionID)
+	assert.Equal(expSessionID2, sess[1].PMSessionID)
+	assert.Equal(sess[0].OrchestratorInfo, &net.OrchestratorInfo{
+		TicketParams: protoParams1,
+		PriceInfo: &net.PriceInfo{
+			PricePerUnit:  params1.PricePerPixel.Num().Int64(),
+			PixelsPerUnit: params1.PricePerPixel.Denom().Int64(),
+		},
+	})
+	assert.Equal(sess[1].OrchestratorInfo, &net.OrchestratorInfo{
+		TicketParams: protoParams2,
+		PriceInfo: &net.PriceInfo{
+			PricePerUnit:  params2.PricePerPixel.Num().Int64(),
+			PixelsPerUnit: params2.PricePerPixel.Denom().Int64(),
+		},
+	})
+}
+
 func TestRefreshSessions(t *testing.T) {
 	bsm := newSessionsManagerLIFO(StubBroadcastSessionsManager())
 
 	assert := assert.New(t)
 	assert.Len(bsm.sessList(), 2)
 	assert.Len(bsm.sessMap, 2)
-
-	sess1 := bsm.sessList()[0]
-	sess2 := bsm.sessList()[1]
-	bsm.createSessions = func() ([]*BroadcastSession, error) {
-		return []*BroadcastSession{sess1, sess2}, nil
-	}
 
 	// asserting that pre-existing sessions are not added to sessList or sessMap
 	bsm.refreshSessions()
@@ -393,9 +542,10 @@ func TestRefreshSessions(t *testing.T) {
 	sess3 := StubBroadcastSession("transcoder3")
 	sess4 := StubBroadcastSession("transcoder4")
 
-	bsm.createSessions = func() ([]*BroadcastSession, error) {
-		return []*BroadcastSession{sess3, sess4}, nil
-	}
+	bsm.sessMap[sess3.OrchestratorInfo.Transcoder] = sess3
+	bsm.sessMap[sess4.OrchestratorInfo.Transcoder] = sess4
+	bsm.node.OrchestratorPool.(*stubDiscovery).infos = append(bsm.node.OrchestratorPool.(*stubDiscovery).infos, sess3.OrchestratorInfo, sess4.OrchestratorInfo)
+	bsm.sel.Add([]*BroadcastSession{sess3, sess4})
 
 	// asserting that new sessions are added to beginning of sessList and sessMap
 	bsm.refreshSessions()
@@ -405,13 +555,12 @@ func TestRefreshSessions(t *testing.T) {
 	assert.Equal(bsm.sessList()[1], sess4)
 
 	// asserting that refreshes stop while another is in-flight
-	bsm.createSessions = func() ([]*BroadcastSession, error) {
-		return []*BroadcastSession{StubBroadcastSession("5"), StubBroadcastSession("6")}, nil
-	}
+	delete(bsm.sessMap, "transcoder3")
+	delete(bsm.sessMap, "transcoder4")
 	bsm.refreshing = true
 	bsm.refreshSessions()
 	assert.Len(bsm.sessList(), 4)
-	assert.Len(bsm.sessMap, 4)
+	assert.Len(bsm.sessMap, 2)
 	assert.Equal(bsm.sessList()[0], sess3)
 	assert.Equal(bsm.sessList()[1], sess4)
 	bsm.refreshing = false
@@ -435,21 +584,18 @@ func TestRefreshSessions(t *testing.T) {
 	// check exit errors from createSession. Run this under -race
 	bsm = newSessionsManagerLIFO(StubBroadcastSessionsManager()) // reset bsm from previous tests
 
-	bsm.createSessions = func() ([]*BroadcastSession, error) {
-		time.Sleep(time.Millisecond)
-		return nil, fmt.Errorf("err")
-	}
+	pool := bsm.node.OrchestratorPool
+	bsm.node.OrchestratorPool = nil
 	for i := 0; i < 200; i++ {
 		wg.Add(1)
 		go func() { bsm.refreshSessions(); wg.Done() }()
 	}
 	assert.True(wgWait(&wg), "Session refresh timed out")
+	bsm.node.OrchestratorPool = pool
 
 	// check empty returns from createSession. Run this under -race
-	bsm.createSessions = func() ([]*BroadcastSession, error) {
-		time.Sleep(time.Millisecond)
-		return []*BroadcastSession{}, nil
-	}
+	updateBsmSessList(bsm.BroadcastSessionsManager, []*BroadcastSession{})
+
 	for i := 0; i < 200; i++ {
 		wg.Add(1)
 		go func() { bsm.refreshSessions(); wg.Done() }()
