@@ -136,6 +136,8 @@ func (bsm *BroadcastSessionsManager) refreshSessions() {
 	bsm.refreshing = true
 	bsm.sessLock.Unlock()
 
+	bsm.sus.signalRefresh()
+
 	newBroadcastSessions, err := bsm.createSessions()
 	if err != nil {
 		bsm.sessLock.Lock()
@@ -196,6 +198,7 @@ func NewSessionManager(node *core.LivepeerNode, params *streamParameters, pl cor
 		sessLock: &sync.Mutex{},
 		numOrchs: numOrchs,
 		poolSize: int(poolSize),
+		sus:      newSuspender(),
 	}
 	bsm.refreshSessions()
 	return bsm
@@ -207,6 +210,7 @@ func (bsm *BroadcastSessionsManager) createSessions() ([]*BroadcastSession, erro
 		return nil, errDiscovery
 	}
 
+	tinfos, err := bsm.node.OrchestratorPool.GetOrchestrators(bsm.numOrchs, bsm.sus)
 	if len(tinfos) <= 0 {
 		glog.Info("No orchestrators found; not transcoding. Error: ", err)
 		return nil, errNoOrchs
@@ -381,6 +385,7 @@ func transcodeSegment(cxn *rtmpConnection, seg *stream.HLSSegment, name string,
 	}
 	res, err := SubmitSegment(sess, seg, nonce)
 	if err != nil || res == nil {
+		cxn.sessManager.suspendOrchestrator(sess.OrchestratorInfo, err)
 		cxn.sessManager.removeSession(sess)
 		if res == nil && err == nil {
 			err = errors.New("empty response")
@@ -513,7 +518,13 @@ func transcodeSegment(cxn *rtmpConnection, seg *stream.HLSSegment, name string,
 	return segURLs, nil
 }
 
-var sessionErrStrings = []string{"dial tcp", "unexpected EOF", core.ErrOrchBusy.Error(), core.ErrOrchCap.Error()}
+func (bsm *BroadcastSessionsManager) suspendOrchestrator(orch *net.OrchestratorInfo, err error) {
+	if shouldStopSession(err) {
+		bsm.sus.suspend(orch.GetTranscoder(), int64(bsm.poolSize/bsm.numOrchs))
+	}
+}
+
+var sessionErrStrings = []string{"Client.Timeout", "dial tcp", "unexpected EOF", core.ErrOrchBusy.Error(), core.ErrOrchCap.Error()}
 
 var sessionErrRegex = common.GenErrRegex(sessionErrStrings)
 
