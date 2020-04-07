@@ -1218,6 +1218,11 @@ func TestOrchestratorPool_GetOrchestrators_SuspendedOrchs(t *testing.T) {
 	assert.NotEqual(res[0].GetTranscoder(), "https://127.0.0.1:8938")
 	assert.NotEqual(res[1].GetTranscoder(), "https://127.0.0.1:8938")
 
+	// include suspended O's if not enough non-suspended O's available
+	require.Greater(sus.Suspended("https://127.0.0.1:8938"), int64(0))
+	res, err = pool.GetOrchestrators(3, sus)
+	assert.Nil(err)
+	assert.Len(res, 3)
 }
 
 func TestOrchestratorPool_ShuffleGetOrchestrators(t *testing.T) {
