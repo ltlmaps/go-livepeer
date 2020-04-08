@@ -140,15 +140,14 @@ func (h *lphttp) ServeSegment(w http.ResponseWriter, r *http.Request) {
 	var segments []*net.TranscodedSegmentData
 	var pixels int64
 	for i := 0; err == nil && i < len(res.TranscodeData.Segments); i++ {
-		var ext string
+		var uri, ext string
 		ext, err = common.ProfileFormatExtension(segData.Profiles[i].Format)
 		if err != nil {
 			glog.Errorf("Unknown format extension manifestID=%s seqNo=%d err=%s", segData.ManifestID, segData.Seq, err)
 			break
 		}
 		name := fmt.Sprintf("%s/%d%s", segData.Profiles[i].Name, segData.Seq, ext)
-		// The use of := here is probably a bug?!?
-		uri, err := res.OS.SaveData(name, res.TranscodeData.Segments[i].Data)
+		uri, err = res.OS.SaveData(name, res.TranscodeData.Segments[i].Data)
 		if err != nil {
 			glog.Error("Could not upload segment ", segData.Seq)
 			break

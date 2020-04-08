@@ -522,10 +522,9 @@ func TestServeSegment_OSSaveDataError(t *testing.T) {
 	assert := assert.New(t)
 	assert.Equal(http.StatusOK, resp.StatusCode)
 
-	res, ok := tr.Result.(*net.TranscodeResult_Data)
+	res, ok := tr.Result.(*net.TranscodeResult_Error)
 	assert.True(ok)
-	assert.Equal([]byte("foo"), res.Data.Sig)
-	assert.Equal(0, len(res.Data.Segments))
+	assert.Equal("SaveData error", res.Error)
 }
 
 func TestServeSegment_ReturnSingleTranscodedSegmentData(t *testing.T) {
@@ -1040,11 +1039,9 @@ func TestServeSegment_DebitFees_OSSaveDataError_BreakLoop(t *testing.T) {
 	assert := assert.New(t)
 	assert.Equal(http.StatusOK, resp.StatusCode)
 
-	res, ok := tr.Result.(*net.TranscodeResult_Data)
+	res, ok := tr.Result.(*net.TranscodeResult_Error)
 	assert.True(ok)
-	assert.Equal([]byte("foo"), res.Data.Sig)
-	assert.Equal(1, len(res.Data.Segments))
-	assert.Equal(res.Data.Segments[0].Pixels, tData720.Pixels)
+	assert.Equal("SaveData error", res.Error)
 	orch.AssertCalled(t, "DebitFees", mock.Anything, md.ManifestID, mock.Anything, tData720.Pixels)
 }
 
