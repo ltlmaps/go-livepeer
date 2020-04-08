@@ -12,7 +12,7 @@ type suspensionQueue []*suspension
 // A suspension is the item we manage in the priority queue.
 type suspension struct {
 	orch    *net.OrchestratorInfo
-	penalty int64
+	penalty int
 }
 
 func (sq suspensionQueue) Len() int { return len(sq) }
