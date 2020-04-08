@@ -385,7 +385,7 @@ func transcodeSegment(cxn *rtmpConnection, seg *stream.HLSSegment, name string,
 	}
 	res, err := SubmitSegment(sess, seg, nonce)
 	if err != nil || res == nil {
-		cxn.sessManager.sus.suspend(sess.OrchestratorInfo.GetTranscoder(), int64(cxn.sessManager.poolSize/cxn.sessManager.numOrchs))
+		cxn.sessManager.sus.suspend(sess.OrchestratorInfo.GetTranscoder(), cxn.sessManager.poolSize/cxn.sessManager.numOrchs)
 		cxn.sessManager.removeSession(sess)
 		if res == nil && err == nil {
 			err = errors.New("empty response")

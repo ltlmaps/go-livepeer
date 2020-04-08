@@ -793,7 +793,7 @@ func TestTranscodeSegment_SuspendOrchestrator(t *testing.T) {
 	_, err = transcodeSegment(cxn, &stream.HLSSegment{Data: []byte("dummy"), Duration: 2.0}, "dummy", nil)
 
 	assert.EqualError(err, "OrchestratorBusy")
-	assert.Equal(bsm.sus.Suspended(ts.URL), int64(5)) // bsm.poolSize / bsm.numOrchs
+	assert.Equal(bsm.sus.Suspended(ts.URL), bsm.poolSize/bsm.numOrchs)
 }
 
 func TestTranscodeSegment_CompleteSession(t *testing.T) {
