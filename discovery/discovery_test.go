@@ -1223,6 +1223,32 @@ func TestOrchestratorPool_GetOrchestrators_SuspendedOrchs(t *testing.T) {
 	res, err = pool.GetOrchestrators(3, sus)
 	assert.Nil(err)
 	assert.Len(res, 3)
+	// suspended Os are added last
+	assert.Equal(res[2].Transcoder, "https://127.0.0.1:8938")
+
+	// no suspended O's, insufficient non-suspended O's
+	res, err = pool.GetOrchestrators(4, sus)
+	assert.Nil(err)
+	assert.Len(res, 3)
+
+	// insufficient non-suspended O's, insufficient suspended O's
+	sus.list["https://127.0.0.1:8938"] = 5
+	require.Greater(sus.Suspended("https://127.0.0.1:8938"), 0)
+	res, err = pool.GetOrchestrators(4, sus)
+	assert.Nil(err)
+	assert.Len(res, 3)
+	// suspended Os are added last
+	assert.Equal(res[2].Transcoder, "https://127.0.0.1:8938")
+
+	// lower penalty is included before a higher penalty
+	sus.list["https://127.0.0.1:8937"] = 2
+	require.Greater(sus.Suspended("https://127.0.0.1:8937"), 0)
+	// https://127.0.0.1:8937 should be a lower index than https://127.0.0.1:8938
+	res, err = pool.GetOrchestrators(4, sus)
+	assert.Nil(err)
+	assert.Len(res, 3)
+	assert.Equal(res[1].Transcoder, "https://127.0.0.1:8937")
+	assert.Equal(res[2].Transcoder, "https://127.0.0.1:8938")
 }
 
 func TestOrchestratorPool_ShuffleGetOrchestrators(t *testing.T) {
