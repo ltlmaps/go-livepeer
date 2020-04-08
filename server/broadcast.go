@@ -385,7 +385,7 @@ func transcodeSegment(cxn *rtmpConnection, seg *stream.HLSSegment, name string,
 	}
 	res, err := SubmitSegment(sess, seg, nonce)
 	if err != nil || res == nil {
-		cxn.sessManager.suspendOrchestrator(sess.OrchestratorInfo, err)
+		cxn.sessManager.sus.suspend(sess.OrchestratorInfo.GetTranscoder(), int64(cxn.sessManager.poolSize/cxn.sessManager.numOrchs))
 		cxn.sessManager.removeSession(sess)
 		if res == nil && err == nil {
 			err = errors.New("empty response")
@@ -516,12 +516,6 @@ func transcodeSegment(cxn *rtmpConnection, seg *stream.HLSSegment, name string,
 
 	glog.V(common.DEBUG).Infof("Successfully validated segment nonce=%d seqNo=%d", nonce, seg.SeqNo)
 	return segURLs, nil
-}
-
-func (bsm *BroadcastSessionsManager) suspendOrchestrator(orch *net.OrchestratorInfo, err error) {
-	if shouldStopSession(err) {
-		bsm.sus.suspend(orch.GetTranscoder(), int64(bsm.poolSize/bsm.numOrchs))
-	}
 }
 
 var sessionErrStrings = []string{"Client.Timeout", "dial tcp", "unexpected EOF", core.ErrOrchBusy.Error(), core.ErrOrchCap.Error()}

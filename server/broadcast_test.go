@@ -88,6 +88,8 @@ func bsmWithSessList(sessList []*BroadcastSession) *BroadcastSessionsManager {
 		sessMap:  sessMap,
 		sessLock: &sync.Mutex{},
 		sus:      newSuspender(),
+		numOrchs: 1,
+		poolSize: len(sessList),
 	}
 }
 
@@ -791,7 +793,7 @@ func TestTranscodeSegment_SuspendOrchestrator(t *testing.T) {
 	_, err = transcodeSegment(cxn, &stream.HLSSegment{Data: []byte("dummy"), Duration: 2.0}, "dummy", nil)
 
 	assert.EqualError(err, "OrchestratorBusy")
-	assert.Equal(bsm.sus.Suspended(ts.URL), int64(5)) // bsm.poolSize / 8
+	assert.Equal(bsm.sus.Suspended(ts.URL), int64(5)) // bsm.poolSize / bsm.numOrchs
 }
 
 func TestTranscodeSegment_CompleteSession(t *testing.T) {
