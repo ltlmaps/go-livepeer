@@ -76,18 +76,17 @@ func (o *orchestratorPool) GetOrchestrators(numOrchestrators int, suspender comm
 
 	timeout := false
 	infos := []*net.OrchestratorInfo{}
-	suspendedInfos := newPriorityQueue()
+	suspendedInfos := newSuspensionQueue()
 	nbResp := 0
 	for i := 0; i < numAvailableOrchs && len(infos) < numOrchestrators && !timeout; i++ {
 		select {
 		case info := <-infoCh:
 			if penalty := suspender.Suspended(info.Transcoder); penalty == 0 {
 				infos = append(infos, info)
-				nbResp++
 			} else {
 				heap.Push(suspendedInfos, &suspension{info, penalty})
-				nbResp++
 			}
+			nbResp++
 		case <-errCh:
 			nbResp++
 		case <-ctx.Done():
@@ -97,12 +96,9 @@ func (o *orchestratorPool) GetOrchestrators(numOrchestrators int, suspender comm
 	cancel()
 
 	if len(infos) < numOrchestrators {
-		diff := int(math.Min(float64(numOrchestrators-nbResp), float64(suspendedInfos.Len())))
-		for i := 0; i <= diff; i++ {
-			if suspendedInfos.Len() == 0 {
-				break
-			}
-			info := suspendedInfos.Pop().(*suspension).orch
+		diff := numOrchestrators - len(infos)
+		for i := 0; i < diff && suspendedInfos.Len() > 0; i++ {
+			info := heap.Pop(suspendedInfos).(*suspension).orch
 			infos = append(infos, info)
 		}
 	}
