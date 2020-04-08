@@ -20,7 +20,7 @@ type OrchestratorPool interface {
 }
 
 type Suspender interface {
-	Suspended(orch string) int64
+	Suspended(orch string) int
 }
 
 type OrchestratorStore interface {

@@ -1209,7 +1209,7 @@ func TestOrchestratorPool_GetOrchestrators_SuspendedOrchs(t *testing.T) {
 	// suspend https://127.0.0.1:8938
 	sus := newStubSuspender()
 	sus.list["https://127.0.0.1:8938"] = 5
-	require.Greater(sus.Suspended("https://127.0.0.1:8938"), int64(0))
+	require.Greater(sus.Suspended("https://127.0.0.1:8938"), 0)
 
 	// don't include suspended orchestrators if enough orchestrators are available
 	res, err := pool.GetOrchestrators(2, sus)
@@ -1219,7 +1219,7 @@ func TestOrchestratorPool_GetOrchestrators_SuspendedOrchs(t *testing.T) {
 	assert.NotEqual(res[1].GetTranscoder(), "https://127.0.0.1:8938")
 
 	// include suspended O's if not enough non-suspended O's available
-	require.Greater(sus.Suspended("https://127.0.0.1:8938"), int64(0))
+	require.Greater(sus.Suspended("https://127.0.0.1:8938"), 0)
 	res, err = pool.GetOrchestrators(3, sus)
 	assert.Nil(err)
 	assert.Len(res, 3)
